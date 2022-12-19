@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Launch an t2.micro instance in a default public subnet in default VPC.
+  We're also using a default Security Group.
+  No parameters - all property values hardcoded.
+  Intrinsic functions we use:
+    !Ref
+    !Sub
+  Psudo parameters we use:
+    AWS::StackId
+    ${WebServerInstance.PublicIp}
+Resources:
+  WebServerInstance:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: t3.nano
+      ImageId: ami-076309742d466ad69
+      KeyName: default
+      Tags:
+        - Key: StackId
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: Very simple CFN web server
+      UserData: 
+        Fn::Base64: |
+          #!/bin/bash -xe
+          # Setting up apache web server
+          yum install -y httpd.x86_64
+          systemctl start httpd.service
+          systemctl enable httpd.service
+          # Simple static webpage using metadata
+          HOSTNAME=$(curl -s http://169.254.169.254/latest/meta-data/public-hostname)
+          AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+          echo "Made by Cloudformation: $HOSTNAME located in $AZ" > /var/www/html/index.html
+Outputs:
+  URL:
+    Value: !Sub |
+     http://${WebServerInstance.PublicIp}
+    Description: Newly created application URL
