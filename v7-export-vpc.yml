@@ -1,9 +1,10 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
-  Launch an t2.micro instance in a default public subnet.
-
-  - Provision a security group from an external template 
-    (and create nested stack)
+  Create a VPC with a public subnet and export the VPC ID and subnet ID.
+  Exporting the following Output values for other stacks to use:
+  StackName-VpcId
+  StackName-SubnetId
+  where StackName is the name of the stack that this template has been deployed to.
 Parameters:
   VPCCIDR:
     Description: CIDR Block for VPC

@@ -1,33 +1,21 @@
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
-  Launch an t2.micro instance in a default public subnet.
-
-  - Add to Allowed values to verify instance types that we can use.
-  - Use SSM Systems Manager Parameter Store to get the latest AMI id (instead of hardcoding it)
-Parameters:
-  InstanceType:
-    Type: String
-    Description: Instance Type
-    Default: t3.nano
-    AllowedValues:
-      - t3.nano
-      - t3.micro
-      - t3.small
-  AMIid:
-    Description: Find the latest AMI ID using System Manager Parameter Store
-    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
-    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
-  SSHKeyName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: An existing SSH key from your account
-    Default: default
+  Launch an t2.micro instance in a default public subnet in default VPC.
+  We're also using a default Security Group.
+  No parameters - all property values hardcoded.
+  Intrinsic functions we use:
+    !Ref
+    !Sub
+  Psudo parameters we use:
+    AWS::StackId
+    ${WebServerInstance.PublicIp}
 Resources:
   WebServerInstance:
     Type: 'AWS::EC2::Instance'
     Properties:
-      InstanceType: !Ref InstanceType
-      ImageId: !Ref AMIid
-      KeyName: !Ref SSHKeyName
+      InstanceType: t3.micro
+      ImageId: ami-076309742d466ad69
+      KeyName: default
       Tags:
         - Key: StackId
           Value: !Ref 'AWS::StackId'
@@ -46,7 +34,7 @@ Resources:
           TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
           HOSTNAME=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/public-hostname)
           AZ=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
-          echo "v3 - Made by Cloudformation: $HOSTNAME located in $AZ" > /var/www/html/index.html
+          echo "v1.3 - Made by Cloudformation: $HOSTNAME located in $AZ" > /var/www/html/index.html
 Outputs:
   URL:
     Value: !Sub |

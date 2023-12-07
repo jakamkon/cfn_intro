@@ -10,6 +10,12 @@ Description: >-
     AWS::StackId
     ${WebServerInstance.PublicIp}
 Resources:
+  ImportSG:
+    Type: AWS::EC2::SecurityGroup
+    DeletionPolicy: Retain
+    Properties:
+      GroupDescription: test
+      VpcId: vpc-78608d12
   WebServerInstance:
     Type: 'AWS::EC2::Instance'
     Properties:

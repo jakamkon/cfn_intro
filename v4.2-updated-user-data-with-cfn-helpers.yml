@@ -1,0 +1,151 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Launch an t2.micro instance in a default public subnet.
+
+  - Use instance's metadata section to configure files, packages, services, commands
+  - Especially set up cfn-hup deamon to monitor changes in this section
+  - Inside user data simply call cfn-init to apply all of the configuration from Metadata
+  - Then send error or success signal to back to the stack to let Cloudformation know if metadata
+    has been applied successfully
+  - Define Creation policy for instance to specify how much time CloudFormation should wait for the signal
+    before deciding that the instance has not been correctly configured
+  - Also set up a script to be run when metadata is changed
+Parameters:
+  InstanceType:
+    Type: String
+    Description: Instance Type
+    Default: t3.nano
+    AllowedValues:
+      - t3.nano
+      - t3.micro
+      - t3.small
+  AMIid:
+    Description: Find the latest AMI ID using System Manager Parameter Store
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+  SSHKeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: An existing SSH key from your account
+    Default: default
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Launch new instance in this VPC
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Launch new instance in this subnet (has to be in the VPC you've choosed above)
+  SSHSourceIpRange:
+    Description: The IP address range that can be used to SSH to the EC2 instances
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+  DeploymentVersion:
+    Type: String
+    Default: not set
+Resources:
+  InstanceSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: Enable SSH access via port 22 and HTTP via port 80
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: !Ref SSHSourceIpRange
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+  WebServerInstance:
+    Type: 'AWS::EC2::Instance'
+    Metadata:
+      Comment: Install a simple application
+      'AWS::CloudFormation::Init':
+        config:
+          commands:
+            test:
+              command: "/home/ec2-user/updateMeta.sh"         
+          packages:
+            yum:
+              httpd: []
+          files:
+            /home/ec2-user/updateMeta.sh:
+              content: !Sub |
+                    TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+                    HOSTNAME=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/public-hostname)
+                    AZ=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+                    sed -e "s/\$HOSTNAME/$HOSTNAME/g" -e "s/\$AZ/$AZ/g" /var/www/html/index.html > /home/ec2-user/updated_index.html
+                    cp /var/www/html/index.html /home/ec2-user/index.html.orig
+                    cp /home/ec2-user/updated_index.html /var/www/html/index.html
+              mode: '000744'
+              owner: root
+              group: root
+            /var/www/html/index.html:
+              content: !Sub |
+                    <h1>v5 - Made by Cloudformation: $HOSTNAME located in $AZ</h1>
+                    <p>Stack name: ${AWS::StackName}</p>
+                    <p>Region: ${AWS::Region}</p>
+              mode: '000644'
+              owner: root
+              group: root
+            /etc/cfn/cfn-hup.conf:
+              content: !Sub |
+                    [main]
+                    stack=${AWS::StackId}
+                    region=${AWS::Region}
+                    interval=1
+              mode: '000400'
+              owner: root
+              group: root
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Sub | 
+                    [cfn-auto-reloader-hook]
+                    triggers=post.update
+                    path=Resources.WebServerInstance.Metadata.AWS::CloudFormation::Init
+                    action=/opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource WebServerInstance --region ${AWS::Region}
+                    runas=root
+              mode: '000400'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+              cfn-hup:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files:
+                  - /etc/cfn/cfn-hup.conf
+                  - /etc/cfn/hooks.d/cfn-auto-reloader.conf
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AMIid
+      KeyName: !Ref SSHKeyName
+      SecurityGroupIds: 
+        - !Ref InstanceSecurityGroup
+      SubnetId: !Ref SubnetId
+      Tags:
+        - Key: StackId
+          Value: !Ref 'AWS::StackId'
+        - Key: Name
+          Value: Very simple CFN web server
+        - Key: DeploymentVersion
+          Value: !Ref DeploymentVersion
+      UserData: 
+        Fn::Base64: !Sub |
+         #!/bin/bash -xe
+          yum update -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource WebServerInstance --region ${AWS::Region}
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource WebServerInstance --region ${AWS::Region}
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT5M
+Outputs:
+  URL:
+    Value: !Sub |
+     http://${WebServerInstance.PublicIp}
+    Description: Newly created application URL
